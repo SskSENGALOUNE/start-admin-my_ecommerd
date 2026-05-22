@@ -1,0 +1,14 @@
+import { useQuery } from "@tanstack/react-query";
+import { dashboardApi } from "./client";
+
+export const dashboardKeys = {
+  stats: ["dashboard", "stats"] as const,
+};
+
+export function useDashboardStats() {
+  return useQuery({
+    queryKey: dashboardKeys.stats,
+    queryFn: () => dashboardApi.getStats(),
+    staleTime: 1000 * 60 * 2, // refresh every 2 min
+  });
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "transactions" ALTER COLUMN "bank_type" DROP NOT NULL;
