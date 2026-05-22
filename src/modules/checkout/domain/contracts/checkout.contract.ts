@@ -61,5 +61,7 @@ export const PlaceOrderResponseSchema = z.object({
   paymentMethod: PaymentMethodSchema,
   /** EMV QR string — only present for QR payment. Pass to react-qr-code to render. */
   qrString: z.string().nullable(),
+  /** PubNub channel ID — only present for QR payment. Used for real-time confirmation. */
+  channelId: z.string().nullable(),
 });
 export type PlaceOrderResponse = z.infer<typeof PlaceOrderResponseSchema>;

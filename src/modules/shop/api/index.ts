@@ -33,7 +33,7 @@ export const shopRoutes = new Elysia({ prefix: "/shop" })
     async ({ db, query }) => {
       const conditions = [
         isNull(schema.products.deletedAt),
-        eq(schema.products.isActive, true),
+        sql`${schema.products.isActive} = true`,
       ];
 
       if (query.search) {
@@ -113,7 +113,7 @@ export const shopRoutes = new Elysia({ prefix: "/shop" })
           and(
             eq(schema.products.id, params.id),
             isNull(schema.products.deletedAt),
-            eq(schema.products.isActive, true),
+            sql`${schema.products.isActive} = true`,
           ),
         )
         .limit(1);

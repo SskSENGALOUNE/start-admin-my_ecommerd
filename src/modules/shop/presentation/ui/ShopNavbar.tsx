@@ -58,7 +58,7 @@ export function ShopNavbar({ cartCount = 0 }: Props) {
                 type="button"
                 onClick={() =>
                   logout.mutate(undefined, {
-                    onSuccess: () => nav({ to: "/customer/login" }),
+                    onSuccess: () => nav({ to: "/" }),
                   })
                 }
                 disabled={logout.isPending}

@@ -20,5 +20,6 @@ export const CustomerSessionSchema = z.object({
   name: z.string(),
   phone: z.string().nullable(),
   isActive: z.boolean(),
+  hasPassword: z.boolean(),
 });
 export type CustomerSession = z.infer<typeof CustomerSessionSchema>;

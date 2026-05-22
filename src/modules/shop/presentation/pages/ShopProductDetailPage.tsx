@@ -5,7 +5,7 @@ import { ArrowLeftIcon, ShoppingCartIcon } from "lucide-react";
 import { useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCustomerSession } from "@/modules/customer-auth/presentation/model/useCustomerAuth";
-import { useAddToCart } from "@/modules/cart/presentation/api/queries";
+import { useAddToCart, useCart } from "@/modules/cart/presentation/api/queries";
 import { useShopProduct } from "../api/queries";
 import { ShopNavbar } from "../ui/ShopNavbar";
 import type { ShopProductVariant } from "../api/client";
@@ -16,6 +16,7 @@ export function ShopProductDetailPage() {
   const productQuery = useShopProduct(id);
   const product = productQuery.data;
   const { data: authData } = useCustomerSession();
+  const { data: cart } = useCart();
   const addToCart = useAddToCart();
 
   const [selectedImage, setSelectedImage] = useState(0);
@@ -53,7 +54,7 @@ export function ShopProductDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <ShopNavbar />
+      <ShopNavbar cartCount={cart?.totalItems} />
 
       <main className="mx-auto max-w-5xl px-4 py-8">
         {/* Back */}

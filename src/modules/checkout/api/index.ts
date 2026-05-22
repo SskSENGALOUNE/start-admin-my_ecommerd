@@ -317,6 +317,7 @@ export const checkoutRoutes = new Elysia({ prefix: "/checkout" })
         discount: result.discount,
         paymentMethod: result.paymentMethod,
         qrString: result.qrString,
+        channelId: result.channelId,
       };
     },
     { body: PlaceOrderSchema },

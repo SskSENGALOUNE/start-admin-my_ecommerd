@@ -11,8 +11,9 @@ import {
   WalletIcon,
   XIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useCart } from "@/modules/cart/presentation/api/queries";
+import { useMyAddressesQuery } from "@/modules/customer-account/presentation/api/queries";
 import { CustomerAuthGuard } from "@/modules/customer-auth/presentation/ui/CustomerAuthGuard";
 import { ShopNavbar } from "@/modules/shop/presentation/ui/ShopNavbar";
 import type {
@@ -51,12 +52,12 @@ const SHIPPING_PROVIDERS: {
   label: string;
   eta: string;
 }[] = [
-  { value: "RAIDER", label: "Raider", eta: "1-2 ວັນ" },
-  { value: "ANOUSITH_EXPRESS", label: "Anousith Express", eta: "1-3 ວັນ" },
-  { value: "HOUNGALOUN_EXPRESS", label: "Houngaloun Express", eta: "2-3 ວັນ" },
-  { value: "MIXAY_EXPRESS", label: "Mixay Express", eta: "2-4 ວັນ" },
-  { value: "UNITEL_EXPRESS", label: "Unitel Express", eta: "1-2 ວັນ" },
-];
+    { value: "RAIDER", label: "Raider", eta: "1-2 ວັນ" },
+    { value: "ANOUSITH_EXPRESS", label: "Anousith Express", eta: "1-3 ວັນ" },
+    { value: "HOUNGALOUN_EXPRESS", label: "Houngaloun Express", eta: "2-3 ວັນ" },
+    { value: "MIXAY_EXPRESS", label: "Mixay Express", eta: "2-4 ວັນ" },
+    { value: "UNITEL_EXPRESS", label: "Unitel Express", eta: "1-2 ວັນ" },
+  ];
 
 const SHIPPING_COST = 25000;
 
@@ -112,6 +113,7 @@ function Field({
 function CheckoutContent() {
   const nav = useNavigate();
   const { data: cart, isLoading: cartLoading } = useCart();
+  const { data: addresses } = useMyAddressesQuery();
   const placeOrder = usePlaceOrder();
   const validateCoupon = useValidateCoupon();
 
@@ -122,8 +124,21 @@ function CheckoutContent() {
   const [district, setDistrict] = useState("");
   const [village, setVillage] = useState("");
   const [address, setAddress] = useState("");
+
+  // Pre-fill from default address
+  useEffect(() => {
+    if (!addresses?.length) return;
+    const def = addresses.find((a) => a.isDefault) ?? addresses[0];
+    if (!def) return;
+    setRecipientName(def.recipientName);
+    setRecipientPhone(def.recipientPhone);
+    setProvince(def.province);
+    setDistrict(def.district);
+    setVillage(def.village ?? "");
+    setAddress(def.address);
+  }, [addresses]);
   const [shippingName, setShippingName] = useState<ShippingType>("RAIDER");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("COD");
+  const paymentMethod: PaymentMethod = "QR";
   const [note, setNote] = useState("");
 
   // Coupon state
@@ -204,6 +219,7 @@ function CheckoutContent() {
         orderNumber: result.orderNumber,
         totalAmount: result.totalAmount,
         qrString: result.qrString,
+        channelId: result.channelId ?? "",
       });
       window.location.href = `/payment/qr?${params.toString()}`;
     } else {
@@ -316,18 +332,16 @@ function CheckoutContent() {
                       key={sp.value}
                       type="button"
                       onClick={() => setShippingName(sp.value)}
-                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                        shippingName === sp.value
+                      className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${shippingName === sp.value
                           ? "border-primary bg-primary/5 ring-1 ring-primary"
                           : "hover:border-primary/40 hover:bg-muted/50"
-                      }`}
+                        }`}
                     >
                       <div
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                          shippingName === sp.value
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${shippingName === sp.value
                             ? "bg-primary text-primary-foreground"
                             : "bg-muted text-muted-foreground"
-                        }`}
+                          }`}
                       >
                         <TruckIcon className="h-4 w-4" />
                       </div>
@@ -353,54 +367,17 @@ function CheckoutContent() {
                   icon={<WalletIcon className="h-4 w-4" />}
                   title="ວິທີຊຳລະ"
                 />
-                <div className="grid grid-cols-2 gap-3">
-                  {/* COD */}
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("COD")}
-                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${
-                      paymentMethod === "COD"
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : "hover:border-primary/40 hover:bg-muted/50"
-                    }`}
-                  >
-                    <WalletIcon
-                      className={`h-7 w-7 ${paymentMethod === "COD" ? "text-primary" : "text-muted-foreground"}`}
-                    />
-                    <div className="text-center">
-                      <p className="font-semibold text-sm">ເກັບເງິນປາຍທາງ</p>
-                      <p className="text-muted-foreground text-xs">COD</p>
-                    </div>
-                  </button>
-
-                  {/* QR */}
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMethod("QR")}
-                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${
-                      paymentMethod === "QR"
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : "hover:border-primary/40 hover:bg-muted/50"
-                    }`}
-                  >
-                    <QrCodeIcon
-                      className={`h-7 w-7 ${paymentMethod === "QR" ? "text-primary" : "text-muted-foreground"}`}
-                    />
-                    <div className="text-center">
-                      <p className="font-semibold text-sm">ໂອນຜ່ານ QR</p>
-                      <p className="text-muted-foreground text-xs">
-                        BCEL / JDB / LDB
-                      </p>
-                    </div>
-                  </button>
+                <div className="rounded-xl border border-primary bg-primary/5 p-4 ring-1 ring-primary flex items-center gap-3">
+                  <QrCodeIcon className="h-7 w-7 text-primary shrink-0" />
+                  <div>
+                    <p className="font-semibold text-sm">ໂອນຜ່ານ QR BCEL OnePay</p>
+                    <p className="text-muted-foreground text-xs">ສະແກນ QR ດ້ວຍ BCEL One app</p>
+                  </div>
                 </div>
 
-                {/* QR info banner */}
-                {paymentMethod === "QR" && (
-                  <div className="mt-3 rounded-xl bg-blue-50 p-3 text-blue-700 text-xs dark:bg-blue-950/30 dark:text-blue-300">
-                    📌 ຫຼັງຈາກສັ່ງຊື້, ສະແກນ QR Code ດ້ວຍ BCEL One / JDB / LDB — ລະບົບຈະຢືນຢັນອັດຕະໂນມັດທັນທີ
-                  </div>
-                )}
+                <div className="mt-3 rounded-xl bg-blue-50 p-3 text-blue-700 text-xs dark:bg-blue-950/30 dark:text-blue-300">
+                  📌 ຫຼັງຈາກສັ່ງຊື້, ສະແກນ QR Code ດ້ວຍ <strong>BCEL Onepay</strong> — ລະບົບຈະຢືນຢັນອັດຕະໂນມັດທັນທີ
+                </div>
               </div>
 
               {/* Note */}

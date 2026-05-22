@@ -104,6 +104,10 @@ export function createServer() {
           }
         } catch {}
 
+        if (status === 500 && error instanceof Error) {
+          console.error("[500]", error.message, (error as Error & { cause?: unknown }).cause ?? "");
+        }
+
         const message =
           error instanceof Error ? error.message : "Internal Server Error";
         return { error: message };

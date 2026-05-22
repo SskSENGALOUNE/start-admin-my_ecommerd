@@ -38,6 +38,14 @@ export function CustomerLoginPage() {
   const [password, setPassword] = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
   const login = useCustomerLogin();
+  const isDev = import.meta.env.DEV;
+
+  async function handleQuickLogin() {
+    setEmail("test@customer.com");
+    setPassword("123456");
+    await login.mutateAsync({ email: "test@customer.com", password: "123456" });
+    nav({ to: returnTo });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -141,6 +149,17 @@ export function CustomerLoginPage() {
               {login.isPending ? "ກຳລັງເຂົ້າ..." : "ເຂົ້າສູ່ລະບົບ"}
             </Button>
           </form>
+
+          {isDev && (
+            <button
+              type="button"
+              onClick={handleQuickLogin}
+              disabled={login.isPending}
+              className="mt-3 w-full rounded-lg border border-dashed border-amber-400 bg-amber-50 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-950/30 dark:text-amber-400"
+            >
+              ⚡ Dev: Quick Login (test@customer.com)
+            </button>
+          )}
 
           <p className="mt-4 text-center text-sm text-muted-foreground">
             ຍັງບໍ່ມີບັນຊີ?{" "}

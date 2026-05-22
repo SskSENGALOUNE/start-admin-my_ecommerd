@@ -1,6 +1,7 @@
 import {
   AudioWaveform,
   Command,
+  CreditCard,
   GalleryVerticalEnd,
   LayoutDashboard,
   Package,
@@ -91,6 +92,12 @@ export const sidebarData: SidebarData = {
           url: "/app/orders",
           icon: ShoppingCart,
           requiredPermissions: ["orders:read"],
+        },
+        {
+          title: "ລາຍການໂອນ",
+          url: "/app/transactions",
+          icon: CreditCard,
+          requiredPermissions: ["transactions:read"],
         },
       ],
     },

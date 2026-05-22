@@ -29,6 +29,17 @@ const CustomerOAuthCallbackPage = lazy(() =>
   ),
 );
 
+const AccountPage = lazy(() =>
+  import("@/modules/customer-account/presentation/pages/AccountPage").then(
+    (m) => ({ default: m.AccountPage }),
+  ),
+);
+const MyOrderDetailPage = lazy(() =>
+  import("@/modules/customer-account/presentation/pages/MyOrderDetailPage").then(
+    (m) => ({ default: m.MyOrderDetailPage }),
+  ),
+);
+
 const ShopPage = lazy(() =>
   import("@/modules/shop/presentation/pages/ShopPage").then(
     (m) => ({ default: m.ShopPage }),
@@ -191,6 +202,12 @@ const CustomersPage = lazy(() =>
 const CustomerDetailPage = lazy(() =>
   import("@/modules/customers/presentation/pages/CustomerDetailPage").then(
     (module) => ({ default: module.CustomerDetailPage }),
+  ),
+);
+
+const TransactionsPage = lazy(() =>
+  import("@/modules/transactions/presentation/pages/TransactionsPage").then(
+    (module) => ({ default: module.TransactionsPage }),
   ),
 );
 
@@ -546,6 +563,39 @@ const orderDetailRoute = createRoute({
   ),
 });
 
+const transactionsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/transactions",
+  component: () => (
+    <RequirePermissions all={["transactions:read"]}>
+      <LazyPage>
+        <TransactionsPage />
+      </LazyPage>
+    </RequirePermissions>
+  ),
+});
+
+// ─── Customer Account Routes ──────────────────────────────────────────────────
+const accountRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/account",
+  component: () => (
+    <LazyPage>
+      <AccountPage />
+    </LazyPage>
+  ),
+});
+
+const myOrderDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/account/orders/$id",
+  component: () => (
+    <LazyPage>
+      <MyOrderDetailPage />
+    </LazyPage>
+  ),
+});
+
 const forbiddenRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/errors/forbidden",
@@ -567,6 +617,8 @@ export const routeTree = rootRoute.addChildren([
   customerLoginRoute,
   customerRegisterRoute,
   customerOAuthCallbackRoute,
+  accountRoute,
+  myOrderDetailRoute,
   authLayoutRoute.addChildren([loginRoute]),
   appRoute.addChildren([
     appIndexRoute,
@@ -588,6 +640,7 @@ export const routeTree = rootRoute.addChildren([
     customerDetailRoute,
     ordersRoute,
     orderDetailRoute,
+    transactionsRoute,
   ]),
   forbiddenRoute,
 ]);

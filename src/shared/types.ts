@@ -3,11 +3,11 @@ import type { DbClient } from "@/server/platform/db/client";
 import type * as schema from "@/server/platform/db/schema";
 import type { ExtractTablesWithRelations } from "drizzle-orm";
 import type { PgTransaction } from "drizzle-orm/pg-core";
-import type { BunSQLQueryResultHKT } from "drizzle-orm/bun-sql";
+import type { NodePgQueryResultHKT } from "drizzle-orm/node-postgres";
 
 export type DbTransaction =
   | PgTransaction<
-      BunSQLQueryResultHKT,
+      NodePgQueryResultHKT,
       typeof schema,
       ExtractTablesWithRelations<typeof schema>
     >

@@ -47,7 +47,7 @@ function getPubNub(): PubNub | null {
  * Called when OnePay publishes payment success to PubNub.
  * Updates transaction → COMPLETED, order → CONFIRMED
  */
-async function handlePaymentConfirmed(msg: OnepayMessage): Promise<void> {
+export async function handlePaymentConfirmed(msg: OnepayMessage): Promise<void> {
   const txnRef = msg.uuid;
   console.info(
     `[PubNub] Payment received — txnRef: ${txnRef}, ticket: ${msg.ticket}`,
@@ -142,7 +142,7 @@ export function startPubNubListener(): void {
   pn.addListener({
     message: (event) => {
       try {
-        const msg = event.message as OnepayMessage;
+        const msg = event.message as unknown as OnepayMessage;
         if (msg?.uuid && msg?.ticket) {
           handlePaymentConfirmed(msg).catch((e) =>
             console.error("[PubNub] Unhandled error:", e),

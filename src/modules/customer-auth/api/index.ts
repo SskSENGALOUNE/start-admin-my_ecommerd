@@ -87,7 +87,7 @@ export const customerAuthRoutes = new Elysia({ prefix: "/customer-auth" })
 
       if (!customer) return status(500, { message: "ສ້າງບັນຊີລົ້ມເຫຼວ" });
 
-      const token = await signCustomerToken(customer);
+      const token = await signCustomerToken({ ...customer, hasPassword: true });
       setSessionCookie(set, token);
 
       return { customer };
@@ -129,6 +129,7 @@ export const customerAuthRoutes = new Elysia({ prefix: "/customer-auth" })
         name: customer.name,
         phone: customer.phone ?? null,
         isActive: customer.isActive,
+        hasPassword: true,
       };
 
       const token = await signCustomerToken(session);
@@ -243,6 +244,7 @@ export const customerAuthRoutes = new Elysia({ prefix: "/customer-auth" })
         name: customer.name,
         phone: customer.phone ?? null,
         isActive: customer.isActive,
+        hasPassword: false,
       });
 
       setSessionCookie(set, token);

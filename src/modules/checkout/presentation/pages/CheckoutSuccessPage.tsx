@@ -9,14 +9,6 @@ import {
 import { useState } from "react";
 import { ShopNavbar } from "@/modules/shop/presentation/ui/ShopNavbar";
 
-// ─── QR Bank info (placeholder — replace with real QR/account) ────────────────
-
-const QR_BANK_ACCOUNTS = [
-  { bank: "BCEL", account: "010-1-23456-7", name: "LaoShop Co., Ltd" },
-  { bank: "JDB", account: "060-1-89012-3", name: "LaoShop Co., Ltd" },
-  { bank: "LDB", account: "040-1-45678-9", name: "LaoShop Co., Ltd" },
-];
-
 function fmt(v: string | number) {
   return `${Number(v).toLocaleString("lo-LA")} ກີບ`;
 }
@@ -107,44 +99,14 @@ export function CheckoutSuccessPage() {
 
           {/* Payment instructions */}
           {isQR ? (
-            <div className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-left dark:border-blue-800 dark:bg-blue-950/30">
-              <p className="mb-3 flex items-center gap-2 font-semibold text-blue-700 text-sm dark:text-blue-300">
+            <div className="mb-6 rounded-xl border border-green-200 bg-green-50 p-4 text-left dark:border-green-800 dark:bg-green-950/30">
+              <p className="mb-2 flex items-center gap-2 font-semibold text-green-700 text-sm dark:text-green-300">
                 <QrCodeIcon className="h-4 w-4" />
-                ຂັ້ນຕອນຊຳລະເງິນ (QR Transfer)
+                ລະບົບຢືນຢັນການຊຳລະສຳເລັດ
               </p>
-              <ol className="list-decimal space-y-1.5 pl-4 text-blue-700 text-xs dark:text-blue-300">
-                <li>
-                  ໂອນເງິນຈຳນວນ{" "}
-                  <strong>{totalAmount ? fmt(totalAmount) : "—"}</strong>{" "}
-                  ໄປຍັງບັນຊີດ້ານລຸ່ມ
-                </li>
-                <li>ຖ່າຍຮູບສລິບການໂອນ</li>
-                <li>ອັບໂຫຼດສລິບໃນໜ້າ "ຄຳສັ່ງຊື້ຂອງຂ້ອຍ"</li>
-                <li>ລໍຖ້າ Admin ກວດສອບ (ພາຍໃນ 24 ຊົ່ວໂມງ)</li>
-              </ol>
-
-              {/* Bank accounts */}
-              <div className="mt-3 space-y-2">
-                {QR_BANK_ACCOUNTS.map((acc) => (
-                  <div
-                    key={acc.bank}
-                    className="flex items-center justify-between rounded-lg bg-white/60 px-3 py-2 dark:bg-black/20"
-                  >
-                    <div>
-                      <p className="font-bold text-blue-800 text-xs dark:text-blue-200">
-                        {acc.bank}
-                      </p>
-                      <p className="font-mono font-semibold text-blue-900 text-sm dark:text-blue-100">
-                        {acc.account}
-                      </p>
-                      <p className="text-blue-600 text-xs dark:text-blue-400">
-                        {acc.name}
-                      </p>
-                    </div>
-                    <CopyButton text={acc.account} />
-                  </div>
-                ))}
-              </div>
+              <p className="text-green-700 text-xs dark:text-green-300">
+                ການຊຳລະຜ່ານ <strong>BCEL One</strong> ຂອງທ່ານໄດ້ຮັບການຢືນຢັນໂດຍອັດຕະໂນມັດ — ຄຳສັ່ງຊື້ຈະຖືກດຳເນີນການໃນໄວໆນີ້
+              </p>
             </div>
           ) : (
             <div className="mb-6 rounded-xl border border-green-200 bg-green-50 p-4 text-left dark:border-green-800 dark:bg-green-950/30">
