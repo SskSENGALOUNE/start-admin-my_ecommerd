@@ -1,622 +1,355 @@
-# Payment & Bank Integration Guide — PTL Master Mind
+# OnePay Integration Guide (Lao QR Payment)
 
-> **วัตถุประสงค์**: Document นี้อธิบาย architecture, flow, และ pattern ของระบบ payment ทั้งหมด
-> เพื่อให้ AI agent หรือ developer implement feature ใหม่ได้ถูกต้องทันที โดยไม่ต้องงม codebase
-
----
-
-## สารบัญ
-
-1. [Overview — ระบบ Payment ปัจจุบัน](#1-overview)
-2. [Payment Provider: BCEL OnePay](#2-bcel-onepay)
-3. [Real-time Notification: PubNub](#3-pubnub)
-4. [EMV QR Code Standard](#4-emv-qr-code)
-5. [Payment Flow แบบ Step-by-Step](#5-payment-flow)
-6. [Architecture & Files Map](#6-architecture--files-map)
-7. [Environment Variables](#7-environment-variables)
-8. [Database Schema (Payment)](#8-database-schema)
-9. [API Endpoints](#9-api-endpoints)
-10. [Status State Machine](#10-payment-status-state-machine)
-11. [TODO / ที่ยังไม่ได้ implement](#11-todo--งานที่ยังค้างอยู่)
-12. [Pattern สำหรับเพิ่ม Payment Provider ใหม่](#12-pattern-เพิ่ม-provider-ใหม่)
-13. [ข้อควรระวัง (Gotchas)](#13-ข้อควรระวัง)
+> **สำหรับ Project:** PTL Master Mind Backend  
+> **Payment Provider:** OnePay (ผ่าน BCEL / PromptPay Lao)  
+> **สถาปัตยกรรม:** QR Code (EMV) + PubNub callback (ไม่มี HTTP webhook)
 
 ---
 
-## 1. Overview
-
-ระบบใช้ **BCEL OnePay** เป็น payment gateway หลักของลาว  
-วิธีชำระเงิน: **QR Code แบบ EMV** (สแกนด้วย BCEL One mobile app)  
-การแจ้งผล payment: **PubNub** (real-time push — ไม่ใช่ polling / webhook)
+## ภาพรวม Flow การชำระเงิน
 
 ```
-Student App          Backend (NestJS)            BCEL OnePay              PubNub
-    │                       │                         │                      │
-    │── POST /checkout ──▶  │                         │                      │
-    │                       │── build EMV QR ──────▶  │                      │
-    │                       │── subscribe channel ──────────────────────────▶│
-    │◀─ { qrCode, ref } ──  │                         │                      │
-    │                       │                         │                      │
-    │  (student scans QR)   │                         │                      │
-    │──────────────────────────────────────────────▶  │                      │
-    │                       │                         │── publish msg ──────▶│
-    │                       │◀─────────────────────────────────────────────  │
-    │                       │── confirmPayment() ─────│                      │
-    │                       │── activateSubscription  │                      │
-    │                       │── createEnrollment      │                      │
-    │◀─ (polling status) ─  │                         │                      │
+Student → POST /v1/payment/checkout
+            └─ สร้าง QR Code (EMV)
+            └─ Subscribe PubNub channel
+
+ลูกค้า scan QR → ธนาคาร / OnePay app
+            └─ OnePay ส่ง message ผ่าน PubNub
+
+Backend รับ PubNub message
+            └─ PaymentCallbackHandler
+            └─ Confirm payment + enroll student
 ```
 
 ---
 
-## 2. BCEL OnePay
+## 1. ขอ Credentials จาก OnePay
 
-### คืออะไร
-**BCEL OnePay** คือ payment gateway ของธนาคาร BCEL (Banque pour le Commerce Extérieur Lao) — ธนาคารรัฐของลาว  
-รองรับการชำระเงินผ่าน QR Code มาตรฐาน EMV บน mobile banking app
+ติดต่อ OnePay Laos เพื่อขอข้อมูลต่อไปนี้:
 
-### การ integrate (วิธีที่ OnePay ทำงาน)
-OnePay **ไม่ต้องการ HTTP call เพื่อลงทะเบียน transaction** ก่อน  
-ขั้นตอนคือ:
+| Parameter | คำอธิบาย | ตัวอย่าง |
+|-----------|----------|---------|
+| `MCID` | Merchant ID — ใช้สร้าง QR | `mch5c2f0404102fb` |
+| `SHOPCODE` | Shop/Branch code | `12345678` |
+| `MCC` | Merchant Category Code (ISO 18245) | `5411` (Grocery) |
+| `TERMINAL_ID` | Terminal ID (ถ้าไม่มี ใช้ `T001`) | `T001` |
+| **PubNub Subscribe Key** | Key สำหรับรับ payment notification | `sub-c-xxxx-xxxx` |
 
-1. **Backend สร้าง QR string** ตามมาตรฐาน EMV โดยใส่ merchant credentials + transaction ref
-2. **Backend subscribe PubNub channel** ด้วย channel name ที่ derive จาก transaction ref
-3. **User scan QR** ด้วย BCEL One app → ธนาคารดำเนินการ
-4. **OnePay publish ไปยัง PubNub channel** นั้นเมื่อ payment สำเร็จ
-
-### Merchant Credentials
-
-| Field | Env Var | ตัวอย่าง | ความหมาย |
-|-------|---------|---------|---------|
-| MCID | `ONEPAY_MCID` | `858500001234` | Merchant ID จาก BCEL |
-| Shop Code | `ONEPAY_SHOPCODE` | `SHOP01` | รหัสสาขา/ร้าน |
-| MCC | `ONEPAY_MCC` | `5411` (default) | Merchant Category Code (ISO 18245) |
-| Terminal ID | `ONEPAY_TERMINAL_ID` | `T001` (default) | รหัส terminal |
-
-### QR Channel Name Convention
-```
-Production: uuid-{MCID}-{txnRef}
-Dev mode:   dev-{txnRef}
-```
-ดูที่: `src/infrastructure/payment/onepay/onepay.client.ts` → `getChannelId()`
+> **หมายเหตุ:** OnePay ใช้ **PubNub** เป็น message broker — **ไม่มี HTTP webhook**  
+> Backend ต้อง subscribe PubNub channel เพื่อรับการแจ้งเตือนการชำระเงิน
 
 ---
 
-## 3. PubNub
+## 2. ตั้งค่า Environment Variables
 
-### บทบาท
-PubNub ทำหน้าที่เป็น **real-time message bus** — OnePay จะ publish message มาเมื่อ payment สำเร็จ  
-Backend subscribe channel และ process ทันที
+แก้ไขไฟล์ `.env`:
 
-### PubNub Message Format (จาก OnePay)
+```env
+# OnePay (Lao QR payment provider)
+ONEPAY_ENABLED=true
+ONEPAY_MCID=<your_merchant_id>
+ONEPAY_SHOPCODE=<your_shop_code>
+ONEPAY_MCC=5411
+ONEPAY_TERMINAL_ID=T001
+ONEPAY_PUBNUB_SUBSCRIBE_KEY=<your_pubnub_subscribe_key>
+
+# ทดสอบด้วยจำนวนเงิน 1 KIP (ลบออกใน production)
+PAYMENT_TEST_AMOUNT=1
+```
+
+**ค่า required เมื่อ `ONEPAY_ENABLED=true`:**
+- `ONEPAY_MCID` — ห้ามว่าง
+- `ONEPAY_SHOPCODE` — ห้ามว่าง  
+- `ONEPAY_PUBNUB_SUBSCRIBE_KEY` — ห้ามว่าง
+
+> ถ้า missing ค่าใดค่าหนึ่ง app จะ **throw error ตอน startup** และไม่ start
+
+---
+
+## 3. การทำงานของ QR Code (EMV Format)
+
+QR ที่สร้างขึ้นเป็น **EMV QR Code** standard ตาม BCEL/OnePay spec:
+
+```
+Field 00: Payload Format Indicator = "01"
+Field 01: Point of Initiation       = "11" (static)
+Field 33: Merchant Account Info (BCEL/ONEPAY)
+  ├─ 00: "BCEL"
+  ├─ 01: "ONEPAY"
+  ├─ 02: <MCID>
+  └─ 05: "CLOSEWHENDONE"
+Field 52: MCC (Merchant Category Code)
+Field 53: Currency Code (418 = LAK)
+Field 54: Amount
+Field 58: Country Code = "LA"
+Field 60: Province = "VTE"
+Field 62: Additional Data
+  ├─ 01: invoiceId (subscriptionId)
+  ├─ 05: txnRef (bank reference เช่น MM-439011-A1B2C3D4)
+  ├─ 07: terminalId
+  └─ 08: description
+Field 63: CRC-16/CCITT (4 hex chars)
+```
+
+**txnRef format:** `MM-{last6ofCourseId}-{8randomChars}` เช่น `MM-439011-A1B2C3D4`
+
+---
+
+## 4. Flow PubNub (รับ Callback)
+
+### 4.1 ทำงานอย่างไร
+
+1. ตอน checkout — backend subscribe PubNub channel `uuid-{MCID}-{uuid}`
+2. ลูกค้าจ่ายเงินสำเร็จ — OnePay ส่ง message เข้า channel นั้น
+3. Backend รับ message → `PaymentCallbackHandler` → confirm payment + enroll
+
+### 4.2 รูปแบบ Message จาก OnePay
+
 ```json
 {
   "uuid": "MM-439011-A1B2C3D4",
   "ticket": "NQ81B8CYODO2",
-  "amount": 500000,
-  "name": "ສົມສັກ ເສັງກະລຸນ",
-  "phone": "2055123456"
+  "amount": 1,
+  "name": "ຊື່ຜູ້ຈ່າຍ",
+  "phone": "020xxxxxxxx"
 }
 ```
 
 | Field | ความหมาย |
 |-------|---------|
-| `uuid` | txnRef ของเรา (ค่าที่เราส่งไปใน QR field 62.05) |
-| `ticket` | Bank's transaction ID (ใช้เก็บใน `bankTransId`) |
+| `uuid` | txnRef ที่เราส่งไปใน QR (= bankRef ในระบบ) |
+| `ticket` | Bank Transaction ID จาก OnePay |
 | `amount` | จำนวนเงินที่จ่าย (KIP) |
-| `name` | ชื่อผู้โอน |
-| `phone` | เบอร์โทรผู้โอน |
+| `name` | ชื่อผู้จ่าย |
+| `phone` | เบอร์ผู้จ่าย |
 
-### PubNub Subscribe Key
-```env
-ONEPAY_PUBNUB_SUBSCRIBE_KEY=sub-c-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-```
-> ⚠️ **Note**: เราใช้แค่ Subscribe Key (อ่านอย่างเดียว) — OnePay เป็นคนส่ง (publish)
+### 4.3 Channel Naming
 
-### การ Re-subscribe หลัง Server Restart
-`PubNubPaymentSubscriber.onApplicationBootstrap()` จะ query payment ที่ยังเป็น PENDING  
-และ re-subscribe ทุก channel อัตโนมัติ (ป้องกัน payment หาย)
-
-ดูที่: `src/infrastructure/payment/pubnub/pubnub-payment.subscriber.ts`
-
-### PubNub Last Token (Catch-up)
-เมื่อได้รับ message จะ save `timetoken` ลง DB ก่อนประมวลผล  
-หาก server crash กลางคัน → restart → subscribe ต่อจาก token นั้น (ไม่พลาด message)
+| Mode | Channel Format |
+|------|---------------|
+| Production | `uuid-{MCID}-{uuid}` |
+| Dev (`ONEPAY_ENABLED=false`) | `dev-{uuid}` |
 
 ---
 
-## 4. EMV QR Code
+## 5. การทดสอบจริง (Real / Production Mode)
 
-### มาตรฐาน
-ใช้ **EMVCo QR Code Specification for Payment Systems** (MPM — Merchant Presented Mode)  
-Format: TLV string (Tag-Length-Value) พร้อม CRC16-CCITT checksum
-
-### Structure ของ QR ที่สร้าง
-
-```
-00 02  01          → Payload Format Indicator
-01 02  11          → Point of Initiation (static QR = 11, dynamic = 12)
-33 XX  ...         → Merchant Account Info (OnePay specific)
-   00  BCEL        → Acquirer name
-   01  ONEPAY      → Service
-   02  {MCID}      → Merchant ID
-   05  CLOSEWHENDONE
-52 04  {MCC}       → Merchant Category Code
-53 03  418         → Transaction Currency (418 = LAK)
-54 XX  {amount}    → Transaction Amount
-58 02  LA          → Country Code
-60 03  VTE         → Merchant City (Province)
-62 XX  ...         → Additional Data
-   01  {invoiceId}     → Invoice/Subscription ID (field 62.01)
-   05  {txnRef}        → Transaction Ref (field 62.05) ← ใช้ match กับ PubNub
-   07  T001            → Terminal ID (field 62.07)
-63 04  {CRC16}     → CRC checksum
-```
-
-### txnRef Format
-```
-MM-{courseId_last6}-{uuid_8chars}
-ตัวอย่าง: MM-439011-A1B2C3D4
-```
-
-### Code Location
-- Builder: `src/infrastructure/payment/onepay/onepay-qr.builder.ts`
-- Service wrapper: `src/infrastructure/payment/qr-payment.service.ts`
-- QR TTL: **2 นาที** (ค่า default ใน `QrPaymentService`)
-
----
-
-## 5. Payment Flow
-
-### 5.1 Happy Path — ซื้อ Course ครั้งแรก
-
-```
-1. POST /v1/payment/checkout { courseId }
-   ├── CheckoutCommand → CheckoutHandler
-   ├── ตรวจ course ว่า WORKING และ ไม่เคย subscribe
-   ├── createPendingSubscription()
-   ├── generateQrPayment(price, courseId, subscriptionId)
-   │   └── OnepayQrBuilder.build() → EMV QR string
-   ├── getChannelId() → PubNub channel name
-   ├── paymentRepository.createPayment()
-   ├── pubnubSubscriber.subscribe(channelId)
-   └── return { ref, qrCode, amount, currency, expiredAt, ttlSeconds }
-
-2. Student scans QR (ฝั่ง client แสดง QR image จาก string ด้วย library เช่น qrcode)
-
-3. OnePay → PubNub: publish { uuid, ticket, amount, name, phone }
-   └── PubNubPaymentSubscriber.handleMessage()
-       ├── payments.saveLastToken(bankRef, timetoken)  ← persist ก่อนเลย
-       └── commandBus.execute(PaymentCallbackCommand)
-           └── PaymentCallbackHandler
-               ├── paymentRepository.confirmPayment()   → status = SUCCESS
-               ├── subscriptionRepository.activate()    → status = ACTIVE
-               └── enrollmentRepository.createEnrollment()
-
-4. Client polling GET /v1/payment/status/:ref
-   └── response: { status: 'SUCCESS', amount, currency, paidAt }
-```
-
-### 5.2 QR หมดอายุ — Regenerate
-
-```
-POST /v1/payment/checkout (เรียกซ้ำ)
-  ├── พบ subscription PENDING + payment EXPIRED
-  ├── generateQrPayment() ใหม่
-  ├── paymentRepository.replaceExpiredQr()
-  └── subscribe channel ใหม่
-```
-
-### 5.3 Admin Manual Confirm (Fallback)
-
-```
-POST /v1/payment/admin/confirm/:paymentId
-  └── ManualConfirmHandler
-      ├── ใช้ใน case ที่ PubNub ไม่ทำงาน
-      └── Flow เดียวกับ PaymentCallbackHandler
-```
-
-### 5.4 Refund Flow (⚠️ ยังไม่ complete)
-
-```
-POST /v1/payment/admin/refund/:paymentId
-  └── RefundHandler
-      ├── ตรวจ payment.status === 'SUCCESS'
-      ├── onepayClient.requestRefund()  ← ⚠️ THROWS NotImplementedException ตอนนี้
-      └── paymentRepository.applyRefund() (3-row atomic transaction)
-          ├── payment.status = 'REFUND_PENDING'
-          ├── subscription.status = 'CANCELLED'
-          └── enrollment.status = 'REFUNDED'
-```
-
----
-
-## 6. Architecture & Files Map
-
-```
-src/
-├── infrastructure/payment/
-│   ├── onepay/
-│   │   ├── onepay-qr.builder.ts      ← สร้าง EMV QR string
-│   │   ├── onepay.client.ts          ← getChannelId(), requestRefund() (TODO)
-│   │   └── onepay.config.ts          ← อ่าน env vars, validate on startup
-│   ├── pubnub/
-│   │   └── pubnub-payment.subscriber.ts  ← subscribe/unsubscribe, handleMessage
-│   └── qr-payment.service.ts         ← facade: generateQrPayment()
-│
-├── application/payment/
-│   ├── commands/
-│   │   ├── checkout.command.ts
-│   │   ├── checkout.handler.ts       ← main checkout logic
-│   │   ├── payment-callback.command.ts
-│   │   ├── payment-callback.handler.ts  ← confirm + activate + enroll
-│   │   ├── manual-confirm.command.ts
-│   │   ├── manual-confirm.handler.ts
-│   │   ├── refund.command.ts
-│   │   └── refund.handler.ts
-│   ├── queries/
-│   │   ├── get-payment-status.query.ts / handler.ts  ← client polling
-│   │   ├── get-payment-detail.query.ts / handler.ts
-│   │   ├── list-payments.query.ts / handler.ts        ← admin list
-│   │   ├── get-payment-stats.query.ts / handler.ts
-│   │   └── get-teacher-payouts-trend.query.ts / handler.ts
-│   └── payment-application.module.ts
-│
-├── domain/payment/
-│   └── payment.repository.ts         ← IPaymentRepository interface + types
-│
-├── infrastructure/prisma/repositories/
-│   └── payment.repository.impl.ts    ← Prisma implementation
-│
-└── presentation/payment/
-    ├── student-payment.controller.ts  ← POST /checkout, GET /status/:ref
-    ├── admin-payment.controller.ts    ← admin endpoints
-    └── payment.module.ts
-```
-
-### DI Token
-```typescript
-import { PAYMENT_REPOSITORY } from 'src/domain/payment/payment.repository';
-// inject: @Inject(PAYMENT_REPOSITORY) private readonly paymentRepo: IPaymentRepository
-```
-
----
-
-## 7. Environment Variables
+### 5.1 เตรียม .env ให้พร้อม
 
 ```env
-# ── OnePay ──────────────────────────────────────────────
-ONEPAY_ENABLED=true                    # false = dev mode (QR ยังสร้างได้ แต่ไม่ real)
-ONEPAY_MCID=858500001234               # Merchant ID จาก BCEL (required ถ้า enabled)
-ONEPAY_SHOPCODE=SHOP01                 # Shop Code (required ถ้า enabled)
-ONEPAY_MCC=5411                        # Merchant Category Code (default: 5411 = Grocery)
-ONEPAY_TERMINAL_ID=T001                # Terminal ID (default: T001)
-ONEPAY_PUBNUB_SUBSCRIBE_KEY=sub-c-xxx  # PubNub Subscribe Key (required ถ้า enabled)
+ONEPAY_ENABLED=true
+ONEPAY_MCID=mch5c2f0404102fb          # ← Merchant ID จาก OnePay
+ONEPAY_SHOPCODE=12345678               # ← Shop Code จาก OnePay
+ONEPAY_MCC=5411
+ONEPAY_TERMINAL_ID=T001
+ONEPAY_PUBNUB_SUBSCRIBE_KEY=sub-c-91489692-fa26-11e9-be22-ea7c5aada356
 
-# ── Testing ──────────────────────────────────────────────
-PAYMENT_TEST_AMOUNT=1                  # override จำนวนเงิน QR (เช่น 1 KIP สำหรับ test)
+# ใช้ 1 KIP ตอนทดสอบ ป้องกันจ่ายเงินจริงเยอะ
+PAYMENT_TEST_AMOUNT=1
 ```
 
-### Dev Mode (ONEPAY_ENABLED=false)
-- QR สร้างได้ปกติ แต่ใช้ placeholder MCID/SHOPCODE
-- PubNub subscriber ไม่ start
-- Channel name prefix ด้วย `dev-`
-- ใช้ `/admin/confirm/:id` เพื่อ simulate payment ที่สำเร็จ
+> **ลบ `PAYMENT_TEST_AMOUNT`** ออกเมื่อ go live จริง เพื่อใช้ราคา course จริง
 
 ---
 
-## 8. Database Schema
+### 5.2 รัน Server และตรวจสอบ Log
 
-### Payment Model (Prisma)
-```prisma
-model Payment {
-  id              String    @id @default(auto()) @map("_id") @db.ObjectId
-  subscriptionId  String    @db.ObjectId
-  userId          String    @db.ObjectId
-  amount          Float
-  currency        String    @default("LAK")
-  method          String    @default("QR_CODE")
-  status          String    @default("PENDING")
-  // QR fields
-  bankRef         String?   // txnRef ที่เราสร้าง: MM-XXXXXX-YYYYYYYY
-  qrCode          String?   // EMV QR string (ยาวมาก)
-  qrExpiredAt     DateTime?
-  // Payment confirmation
-  bankTransId     String?   // ticket จาก OnePay (เช่น NQ81B8CYODO2)
-  bankResponse    Json?     // raw PubNub message
-  paidAt          DateTime?
-  // PubNub tracking
-  pubnubChannelId String?
-  pubnubLastToken String?   // timetoken สำหรับ catch-up replay
-  // Refund
-  refundedAt      DateTime?
-  refundReason    String?
-  refundedById    String?   @db.ObjectId
-  refundResponse  Json?
-  // Relations
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  user            User      @relation(fields: [userId], references: [id])
-  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
+```bash
+pnpm dev
+```
+
+Log ที่ต้องเห็นตอน startup ก่อน test:
+```
+[OnepayConfig] OnePay enabled with MCID=mch5c2f0404102fb  ✅
+[PubNubPaymentSubscriber] Re-subscribing to X pending OnePay channels  ✅
+[PubNubPaymentSubscriber] PubNub network up  ✅
+```
+
+ถ้าไม่เห็น `PubNub network up` → **หยุดก่อน** แก้ Subscribe Key ให้ถูกก่อนทดสอบต่อ
+
+---
+
+### 5.3 สร้าง Student Account และ Login
+
+1. **Register student** (ถ้ายังไม่มี):
+```bash
+POST /v1/auth/register
+{
+  "email": "test.student@example.com",
+  "password": "Test1234!",
+  "firstName": "Test",
+  "lastName": "Student",
+  "role": "STUDENT"
 }
 ```
 
-### Payment Status Values
-
-| Status | ความหมาย |
-|--------|---------|
-| `PENDING` | QR สร้างแล้ว รอ scan |
-| `EXPIRED` | QR หมดอายุก่อน scan |
-| `SUCCESS` | จ่ายแล้ว confirmed |
-| `REFUND_PENDING` | Admin เริ่มขอ refund (OnePay ยังไม่ confirm) |
-| `REFUNDED` | Refund สำเร็จ (เมื่อ OnePay refund API พร้อม) |
+2. **Login เพื่อเอา Token:**
+```bash
+POST /v1/auth/login
+{
+  "email": "test.student@example.com",
+  "password": "Test1234!"
+}
+```
+เก็บ `accessToken` ไว้ใช้ในขั้นต่อไป
 
 ---
 
-## 9. API Endpoints
+### 5.4 Checkout — สร้าง QR จริง
 
-### Student Endpoints
+```bash
+POST /v1/payment/checkout
+Authorization: Bearer <accessToken>
+Content-Type: application/json
 
-#### `POST /v1/payment/checkout`
-สร้าง QR Code สำหรับซื้อ course
-
-**Request:**
-```json
-{ "courseId": "507f1f77bcf86cd799439011" }
+{ "courseId": "<courseId_ที่มีสถานะ_WORKING>" }
 ```
 
-**Response 201:**
+**Response ที่ได้:**
 ```json
 {
   "ref": "MM-439011-A1B2C3D4",
-  "qrCode": "00020101021133...6304ABCD",
-  "amount": 500000,
+  "qrCode": "00020101021133...",
+  "amount": 1,
   "currency": "LAK",
-  "expiredAt": "2026-05-21T10:10:00.000Z",
+  "expiredAt": "2026-05-08T10:10:00.000Z",
   "ttlSeconds": 120
 }
 ```
 
-**Guards:** `JwtAuthGuard`, `RolesGuard(STUDENT)`
+Log ที่ต้องเห็น:
+```
+[PubNubPaymentSubscriber] Subscribed to OnePay channel uuid-mch5c2f0404102fb-MM-439011-A1B2C3D4
+```
 
 ---
 
-#### `GET /v1/payment/status/:ref`
-Client polling เพื่อรู้ผลการชำระเงิน
+### 5.5 แสดง QR Code และ Scan จ่ายเงิน
 
-**Response 200:**
+นำ `qrCode` string ไป render เป็น QR Image — ใช้ tools ต่อไปนี้:
+
+**Option A — Online (เร็วสุด):**  
+เปิด [https://www.qr-code-generator.com/](https://www.qr-code-generator.com/) → เลือก "Text/URL" → วาง `qrCode` string
+
+**Option B — ใช้ Library ใน Frontend:**
+```js
+// npm install qrcode
+import QRCode from 'qrcode'
+const dataUrl = await QRCode.toDataURL(qrCodeString)
+// แสดงใน <img src={dataUrl} />
+```
+
+**Option C — curl + Terminal (สำหรับ dev):**
+```bash
+# ติดตั้ง qrencode
+brew install qrencode
+
+# render QR ใน terminal
+qrencode -t ANSIUTF8 "00020101021133..."
+```
+
+จากนั้น **Scan ด้วย BCEL One App** หรือ **OnePay App** แล้วจ่าย 1 KIP
+
+---
+
+### 5.6 ตรวจสอบว่า Payment สำเร็จ
+
+**วิธี 1 — ดู Log** (เร็วสุด):
+```
+[PubNubPaymentSubscriber] PubNub RAW message channel=uuid-... msg={"uuid":"MM-439011-A1B2C3D4","ticket":"NQ81B8CYODO2",...}
+[PaymentCallbackHandler] Payment confirmed bankRef=MM-439011-A1B2C3D4
+```
+
+**วิธี 2 — Polling API:**
+```bash
+GET /v1/payment/status/MM-439011-A1B2C3D4
+Authorization: Bearer <accessToken>
+```
+
+Response เมื่อสำเร็จ:
 ```json
 {
   "status": "SUCCESS",
-  "amount": 500000,
+  "amount": 1,
   "currency": "LAK",
-  "paidAt": "2026-05-21T10:05:00.000Z"
-}
-```
-
-**Guards:** `JwtAuthGuard`, `RolesGuard(STUDENT)`
-
----
-
-### Admin Endpoints (ดูใน `admin-payment.controller.ts`)
-
-| Method | Path | ความหมาย |
-|--------|------|---------|
-| GET | `/v1/payment/admin/list` | รายการ payments ทั้งหมด (paginated + filter) |
-| GET | `/v1/payment/admin/stats` | สถิติ revenue, refund, pending |
-| GET | `/v1/payment/admin/:id` | รายละเอียด payment |
-| POST | `/v1/payment/admin/confirm/:id` | Manual confirm (dev/fallback) |
-| POST | `/v1/payment/admin/refund/:id` | Refund (⚠️ NotImplemented) |
-
----
-
-## 10. Payment Status State Machine
-
-```
-                    ┌─────────────────────────────────────────┐
-                    │                                         │
-         checkout() ▼                                         │ checkout() again
-         ┌─────────────┐                           ┌──────────┴──────┐
-         │   PENDING   │──── QR expired ──────────▶│    EXPIRED      │
-         └──────┬──────┘                           └─────────────────┘
-                │
-          PubNub message
-          / manual confirm
-                │
-                ▼
-         ┌─────────────┐
-         │   SUCCESS   │──── admin refund ──▶ REFUND_PENDING ──▶ REFUNDED
-         └─────────────┘
-```
-
----
-
-## 11. TODO / งานที่ยังค้างอยู่
-
-### 🔴 Priority 1: OnePay Refund API
-
-**File:** `src/infrastructure/payment/onepay/onepay.client.ts` → `requestRefund()`
-
-ปัจจุบัน throw `NotImplementedException`
-
-**งานที่ต้องทำ:**
-1. ติดต่อ BCEL เพื่อขอ Refund API documentation
-2. Implement `requestRefund()` ตาม contract ที่ได้รับ
-3. ลบ `NotImplementedException` ออก
-4. เพิ่ม integration test
-
-**Pattern ที่ควรเป็น:**
-```typescript
-async requestRefund(input: { bankRef: string; amount: number }): Promise<{ ok: true; raw: Record<string, unknown> }> {
-  // POST to OnePay refund endpoint
-  const response = await axios.post(`${this.config.refundEndpoint}/refund`, {
-    merchantId: this.config.mcid,
-    transactionRef: input.bankRef,
-    amount: input.amount,
-    // ... other required fields
-  }, {
-    headers: { Authorization: `Bearer ${this.config.apiKey}` }
-  });
-
-  if (!response.data.success) {
-    throw new BadRequestException(`OnePay refund failed: ${response.data.message}`);
-  }
-
-  return { ok: true, raw: response.data };
-}
-```
-
-**Env vars ที่ต้องเพิ่ม:**
-```env
-ONEPAY_REFUND_ENDPOINT=https://api.onepay.la/v1
-ONEPAY_API_KEY=xxx   # หรือ HMAC secret แล้วแต่ BCEL กำหนด
-```
-
----
-
-### 🟡 Priority 2: QR Expiry Cleanup Job
-
-Payment ที่ EXPIRED ใน DB ยังไม่ถูก mark อัตโนมัติ  
-Interface มี `markExpired()` แล้ว แต่ยังไม่มี cron job เรียก
-
-**งานที่ต้องทำ:**
-```typescript
-// สร้าง src/infrastructure/payment/payment-expiry.scheduler.ts
-@Cron('*/5 * * * *') // ทุก 5 นาที
-async markExpiredPayments() {
-  const expired = await this.paymentRepository.findExpiredPending();
-  for (const p of expired) {
-    await this.paymentRepository.markExpired(p.id);
-  }
+  "paidAt": "2026-05-08T10:05:00.000Z"
 }
 ```
 
 ---
 
-### 🟡 Priority 3: Payment Webhook (Fallback)
+### 5.7 ปัญหาที่พบบ่อยตอนทดสอบจริง
 
-ถ้า PubNub ล่ม — ไม่มี fallback HTTP webhook จาก OnePay ปัจจุบัน  
-ควรเพิ่ม `POST /v1/payment/webhook/onepay` เป็น HTTP callback option
+| อาการ | สาเหตุ | วิธีแก้ |
+|-------|--------|--------|
+| Scan QR แล้ว error ใน App | MCID/SHOPCODE ผิด | ขอ credentials ใหม่จาก OnePay |
+| Scan ได้ แต่ backend ไม่รับ callback | PubNub Key ผิด | ตรวจสอบ `ONEPAY_PUBNUB_SUBSCRIBE_KEY` |
+| QR หมดอายุก่อน scan | TTL 2 นาที | checkout ใหม่ และ scan ทันที |
+| `status` ยังเป็น `PENDING` | PubNub message ยังไม่มา | รอ 5-10 วิ แล้ว polling อีกครั้ง |
+| Course not found | courseId ผิด หรือ course ไม่ได้ status `WORKING` | ใช้ courseId ที่ถูกต้อง |
 
----
+### 5.2 ทดสอบ PubNub Callback (Simulate)
 
-### 🟢 Priority 4: Support Payment Methods อื่น
+สามารถ simulate payment สำเร็จได้โดยส่ง message ตรงเข้า PubNub channel ผ่าน PubNub Debug Console:
 
-ดูส่วน [Pattern เพิ่ม Provider ใหม่](#12-pattern-เพิ่ม-provider-ใหม่) ด้านล่าง
-
----
-
-## 12. Pattern เพิ่ม Provider ใหม่
-
-### ตัวอย่าง: เพิ่ม BCEL Direct Transfer (Bank Transfer)
-
-#### Step 1: สร้าง Provider Config
-```typescript
-// src/infrastructure/payment/bcel/bcel-transfer.config.ts
-@Injectable()
-export class BcelTransferConfig {
-  readonly accountNumber: string;
-  readonly accountName: string;
-  constructor() {
-    this.accountNumber = process.env.BCEL_ACCOUNT_NUMBER ?? '';
-    this.accountName = process.env.BCEL_ACCOUNT_NAME ?? '';
-  }
+1. เปิด [PubNub Debug Console](https://www.pubnub.com/docs/console/)
+2. ใส่ Subscribe Key: `sub-c-91489692-fa26-11e9-be22-ea7c5aada356`
+3. ใส่ Publish Key (ขอจาก OnePay)
+4. Channel: `uuid-{MCID}-{txnRef}` หรือ `dev-{txnRef}` (dev mode)
+5. ส่ง message:
+```json
+{
+  "uuid": "MM-439011-A1B2C3D4",
+  "ticket": "TEST-TICKET-001",
+  "amount": 1,
+  "name": "Test User",
+  "phone": "02012345678"
 }
 ```
 
-#### Step 2: สร้าง Provider Service
-```typescript
-// src/infrastructure/payment/bcel/bcel-transfer.service.ts
-@Injectable()
-export class BcelTransferService {
-  generateTransferInfo(amount: number, ref: string): TransferInfo {
-    return {
-      bankName: 'BCEL',
-      accountNumber: this.config.accountNumber,
-      accountName: this.config.accountName,
-      amount,
-      ref,
-      description: `PTL-${ref}`,
-    };
-  }
-}
-```
+---
 
-#### Step 3: เพิ่ม method ใน `CheckoutCommand` / `CheckoutHandler`
-```typescript
-// เพิ่ม paymentMethod?: 'QR_CODE' | 'BANK_TRANSFER' ใน CheckoutCommand
-```
+## 6. สาเหตุที่ Bank ไม่ Response กลับมา (Checklist)
 
-#### Step 4: Admin Manual Confirm ยังใช้ได้เหมือนเดิม
-(Bank Transfer ต้องให้ Admin verify slip แล้ว confirm เอง)
+ถ้า PubNub callback ไม่มาหรือ bank ไม่ response ให้ตรวจสอบตามลำดับ:
 
-#### Step 5: เพิ่ม method ใน `PaymentRecord.method`
+### ❌ ปัญหาที่พบบ่อย
+
+| ปัญหา | วิธีตรวจสอบ | วิธีแก้ |
+|-------|------------|--------|
+| `ONEPAY_ENABLED=false` | ดู log: `"OnePay disabled"` | ตั้ง `ONEPAY_ENABLED=true` |
+| MCID/SHOPCODE ผิด | ดู QR ที่ generate ออกมา | ขอ credentials ใหม่จาก OnePay |
+| PubNub Subscribe Key ผิด | ดู log: `"PubNub network down"` | ตรวจสอบ key กับ OnePay |
+| QR หมดอายุ | TTL = 2 นาที | generate QR ใหม่ |
+| Amount = 0 | ดู QR string | ตั้ง `PAYMENT_TEST_AMOUNT=1` หรือใส่ราคา course |
+| Channel subscribe ผิด | ดู log: `"Subscribed to OnePay channel"` | ตรวจสอบ channel naming |
+| CRC ผิดใน QR | scan QR ด้วย app อื่น | ตรวจสอบ `OnepayQrBuilder` |
+
+### ✅ Log ที่ควรเห็นเมื่อทำงานปกติ
+
 ```
-QR_CODE | BANK_TRANSFER | CREDIT_CARD
+[OnepayConfig] OnePay enabled with MCID=mch5c2f0404102fb
+[PubNubPaymentSubscriber] Re-subscribing to X pending OnePay channels
+[PubNubPaymentSubscriber] Subscribed to OnePay channel uuid-mch5c2f0404102fb-MM-439011-A1B2C3D4
+[PubNubPaymentSubscriber] PubNub network up
+[PubNubPaymentSubscriber] PubNub RAW message channel=... msg={"uuid":"MM-...","ticket":"..."}
+[PaymentCallbackHandler] Payment confirmed bankRef=MM-439011-A1B2C3D4
 ```
 
 ---
 
-## 13. ข้อควรระวัง
+## 7. API Endpoints สรุป
 
-### ⚠️ Race Condition — Duplicate PubNub Message
-`PaymentCallbackHandler` เช็ค `payment.status === 'SUCCESS'` ก่อนทำอะไร  
-ถ้าเป็น SUCCESS แล้ว → return early (idempotent)  
-อย่าลบการเช็คนี้ออก
-
-### ⚠️ QR Amount Override
-`PAYMENT_TEST_AMOUNT` ใน env จะ **override ราคาจริง** ของ course ทุก QR  
-ต้องไม่ set ค่านี้ใน production
-
-### ⚠️ PubNub Channel Collision
-`dev-{txnRef}` (dev mode) vs `uuid-{MCID}-{txnRef}` (prod)  
-Dev prefix ป้องกัน collision กับ merchant จริงบน shared PubNub keyset
-
-### ⚠️ saveLastToken ต้อง run ก่อน commandBus.execute
-ลำดับใน `handleMessage()` สำคัญมาก:
-```typescript
-await this.payments.saveLastToken(bankRef, event.timetoken);  // FIRST
-await this.commandBus.execute(new PaymentCallbackCommand(...)); // SECOND
-```
-ถ้า crash ระหว่าง execute → restart → replay จาก token ได้
-
-### ⚠️ Refund ต้องเรียก OnePay ก่อน DB เสมอ
-`RefundHandler` เรียก `onepayClient.requestRefund()` ก่อน แล้วค่อย `applyRefund()` กับ DB  
-ป้องกันกรณี DB อัพเดตแล้วแต่ bank ไม่คืนเงิน
-
-### ⚠️ Currency คือ LAK (KIP) เสมอ
-ตัวเลขเป็น integer ไม่มีทศนิยม (KIP ไม่มี satang)  
-ISO 4217 numeric = `418`
-
-### ⚠️ EMV CRC ต้อง 4 hex chars
-`crc16()` ใน `onepay-qr.builder.ts` padStart 4 ด้วยเหตุผลนี้  
-Reference implementation ของ ANTS ขาด pad นี้ → QR ผิดประมาณ 1/16 ครั้ง
+| Method | Endpoint | Role | คำอธิบาย |
+|--------|----------|------|---------|
+| `POST` | `/v1/payment/checkout` | STUDENT | สร้าง QR Code + subscribe PubNub |
+| `GET` | `/v1/payment/status/:ref` | STUDENT | ตรวจสอบสถานะการชำระเงิน (polling) |
 
 ---
 
-## Quick Reference
+## 8. ติดต่อ OnePay
 
-```typescript
-// สร้าง QR payment
-const result = await this.qrPaymentService.generateQrPayment(
-  amount,      // number (LAK)
-  courseId,    // string (MongoDB ObjectId)
-  invoiceId,   // string? (subscriptionId)
-);
-// result: { bankRef, qrCode, expiredAt, ttlSeconds }
-
-// Subscribe PubNub channel
-const channelId = this.onepayClient.getChannelId({ uuid: bankRef });
-this.pubnubSubscriber.subscribe(channelId);
-
-// Confirm payment (in PubNub callback)
-await this.paymentRepository.confirmPayment(id, bankTransId, rawMsg);
-await this.subscriptionRepository.activate(subscriptionId);
-await this.enrollmentRepository.createEnrollmentFromPayment(userId, courseId);
-```
-
----
-
-*Last updated: 2026-05-21*  
-*Maintainer: SskSENGALOUNE*  
-*Ticket references: MM-18-onepay-refund, BE-MM-30*
+สำหรับขอ credentials หรือแก้ปัญหา:
+- **OnePay Laos**: ติดต่อทีม technical support ของ OnePay/BCEL โดยตรง
+- ข้อมูลที่ต้องเตรียม: ชื่อ merchant, ประเภทธุรกิจ, callback method (PubNub)
+- ขอ document เพิ่มเติม: EMV QR spec, PubNub channel naming convention, test credentials

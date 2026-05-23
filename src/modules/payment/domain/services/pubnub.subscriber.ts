@@ -35,7 +35,7 @@ function getPubNub(): PubNub | null {
   if (!pubnubClient) {
     pubnubClient = new PubNub({
       subscribeKey: env.ONEPAY_PUBNUB_SUBSCRIBE_KEY,
-      uuid: `laoshop-backend-${Date.now()}`,
+      userId: `laoshop-backend-${Date.now()}`,
     });
   }
   return pubnubClient;

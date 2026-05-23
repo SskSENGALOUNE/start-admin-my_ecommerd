@@ -31,7 +31,7 @@ const QR_EXPIRE_SECS = 120; // 2 minutes
 
 export function PaymentQrPage() {
   const nav = useNavigate();
-  const { orderId, orderNumber, totalAmount, qrString: initialQrString, channelId } = useQrParams();
+  const { orderId, orderNumber, totalAmount, qrString: initialQrString, channelId: initialChannelId } = useQrParams();
 
   const [isPaid, setIsPaid] = useState(false);
   const [isPolling, setIsPolling] = useState(true);
@@ -39,6 +39,7 @@ export function PaymentQrPage() {
   const [timeLeft, setTimeLeft] = useState(QR_EXPIRE_SECS);
   const [error, setError] = useState<string | null>(null);
   const [qrString, setQrString] = useState(initialQrString);
+  const [channelId, setChannelId] = useState(initialChannelId);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -54,6 +55,7 @@ export function PaymentQrPage() {
     try {
       const result = await paymentApi.refreshQr(orderId);
       setQrString(result.qrString);
+      setChannelId(result.channelId);
       setIsExpired(false);
       setIsPolling(true);
       setTimeLeft(QR_EXPIRE_SECS);
@@ -104,7 +106,7 @@ export function PaymentQrPage() {
       if (!subscribeKey || !channelId) return;
 
       return import("pubnub").then(({ default: PubNub }) => {
-        const pn = new PubNub({ subscribeKey, uuid: `customer-${orderId}` });
+        const pn = new PubNub({ subscribeKey, userId: `customer-${orderId}` });
         pubnubRef.current = pn;
         pn.addListener({ message: () => checkStatus() });
         pn.subscribe({ channels: [channelId] });

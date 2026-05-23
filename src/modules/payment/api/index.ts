@@ -121,7 +121,7 @@ export const paymentRoutes = new Elysia({ prefix: "/payment" })
 
       subscribeChannel(qr.txnRef);
 
-      return { qrString: qr.qrString };
+      return { qrString: qr.qrString, channelId: qr.channelId };
     },
     { params: OrderIdParam },
   )

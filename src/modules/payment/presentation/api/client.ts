@@ -22,8 +22,8 @@ export const paymentApi = {
     return fetcher.get<PaymentStatus>(`${BASE}/status/${orderId}`);
   },
 
-  async refreshQr(orderId: string): Promise<{ qrString: string }> {
-    return fetcher.post<{ qrString: string }>(`${BASE}/refresh-qr/${orderId}`, {});
+  async refreshQr(orderId: string): Promise<{ qrString: string; channelId: string }> {
+    return fetcher.post<{ qrString: string; channelId: string }>(`${BASE}/refresh-qr/${orderId}`, {});
   },
 
   async devSimulate(orderId: string): Promise<{ ok: boolean }> {
