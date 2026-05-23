@@ -24,6 +24,12 @@ export async function handleError(res: Response): Promise<never> {
           : "ຄໍາຮ້ອງຂໍລົ້ມເຫຼວ");
 
   if (status === 401) {
+    const isCustomerRoute = window.location.pathname.startsWith("/customer")
+      || window.location.pathname.startsWith("/shop")
+      || window.location.pathname.startsWith("/cart")
+      || window.location.pathname.startsWith("/checkout")
+      || window.location.pathname.startsWith("/payment");
+    const loginPath = isCustomerRoute ? "/customer/login" : "/auth/login";
     const ok = await confirm({
       title: "ເຊດຊັນໝົດອາຍຸ",
       description: "ກະລຸນາເຂົ້າລະບົບໃໝ່ເພື່ອດໍາເນີນການຕໍ່.",
@@ -32,7 +38,7 @@ export async function handleError(res: Response): Promise<never> {
         variant: "default",
       },
     });
-    if (ok) window.location.href = "/auth/login";
+    if (ok) window.location.href = loginPath;
   } else if (status === 403) {
     console.error(message);
   } else if (status >= 400 && status < 500) {

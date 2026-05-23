@@ -5,7 +5,6 @@ import {
   CUSTOMER_COOKIE,
   verifyCustomerToken,
 } from "@/modules/customer-auth/domain/services/customer-auth.service";
-import { requirePermission } from "@/modules/roles/domain/http/middleware";
 import { generateQr } from "@/modules/payment/domain/services/onepay.service";
 import { subscribeChannel } from "@/modules/payment/domain/services/pubnub.subscriber";
 import { schema } from "@/server/platform/db/client";
@@ -126,55 +125,6 @@ export const paymentRoutes = new Elysia({ prefix: "/payment" })
     { params: OrderIdParam },
   )
 
-  // ─── POST /payment/admin/confirm/:orderId ─────────────────────────────────
-  // Admin manual confirm (for dev/fallback when PubNub doesn't fire)
-  // 🧪 DEV TESTING: ใช้ endpoint นี้เพื่อ simulate QR payment สำเร็จ
-  //    curl -X POST /api/payment/admin/confirm/<orderId>  (ต้อง login เป็น admin ก่อน)
-  .post(
-    "/admin/confirm/:orderId",
-    async ({ db, params, status }) => {
-      const [txn] = await db
-        .select({
-          id: schema.transactions.id,
-          status: schema.transactions.status,
-        })
-        .from(schema.transactions)
-        .where(eq(schema.transactions.orderRef, params.orderId))
-        .limit(1);
-
-      if (!txn) return status(404, { message: "ບໍ່ພົບ Transaction" });
-      if (txn.status === "COMPLETED") {
-        return status(400, { message: "ຊຳລະແລ້ວ" });
-      }
-
-      await db.transaction(async (tx) => {
-        await tx
-          .update(schema.transactions)
-          .set({
-            status: "COMPLETED",
-            bankRequest: "MANUAL_CONFIRM",
-            bankResponse: JSON.stringify({
-              confirmedBy: "admin",
-              at: new Date(),
-            }),
-            verifiedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.transactions.id, txn.id));
-
-        await tx
-          .update(schema.orders)
-          .set({ status: "CONFIRMED", updatedAt: new Date() })
-          .where(eq(schema.orders.id, params.orderId));
-      });
-
-      return { ok: true, message: "ຢືນຢັນການຊຳລະສຳເລັດ" };
-    },
-    {
-      beforeHandle: requirePermission("orders:update"),
-      params: OrderIdParam,
-    },
-  )
 
   // ─── POST /payment/dev/simulate/:orderId ──────────────────────────────────
   // DEV ONLY — simulates a bank PubNub callback directly in the DB so the

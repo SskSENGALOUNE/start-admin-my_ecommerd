@@ -18,8 +18,10 @@ export const paymentApi = {
     return fetcher.get<{ subscribeKey: string | null }>(`${BASE}/pubkey`);
   },
 
-  async getStatus(orderId: string): Promise<PaymentStatus> {
-    return fetcher.get<PaymentStatus>(`${BASE}/status/${orderId}`);
+  async getStatus(orderId: string): Promise<PaymentStatus | null> {
+    const res = await fetch(`${BASE}/status/${orderId}`, { credentials: "include" });
+    if (!res.ok) return null;
+    return res.json() as Promise<PaymentStatus>;
   },
 
   async refreshQr(orderId: string): Promise<{ qrString: string; channelId: string }> {

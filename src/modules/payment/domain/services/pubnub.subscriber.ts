@@ -141,8 +141,15 @@ export function startPubNubListener(): void {
 
   pn.addListener({
     message: (event) => {
+      console.info(
+        `[PubNub] RAW message — channel: ${event.channel}\n`,
+        JSON.stringify(event.message, null, 2),
+      );
       try {
-        const msg = event.message as unknown as OnepayMessage;
+        const raw = event.message;
+        const msg = (
+          typeof raw === "string" ? JSON.parse(raw) : raw
+        ) as unknown as OnepayMessage;
         if (msg?.uuid && msg?.ticket) {
           handlePaymentConfirmed(msg).catch((e) =>
             console.error("[PubNub] Unhandled error:", e),

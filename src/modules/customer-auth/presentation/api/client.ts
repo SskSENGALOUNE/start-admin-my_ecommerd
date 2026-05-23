@@ -22,10 +22,8 @@ export const customerAuthApi = {
   },
 
   async me(): Promise<CustomerAuthResponse | null> {
-    try {
-      return await fetcher.get<CustomerAuthResponse>(`${BASE}/me`);
-    } catch {
-      return null;
-    }
+    const res = await fetch(`${BASE}/me`, { credentials: "include" });
+    if (!res.ok) return null;
+    return res.json() as Promise<CustomerAuthResponse>;
   },
 };

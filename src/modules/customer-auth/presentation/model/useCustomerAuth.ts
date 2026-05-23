@@ -36,6 +36,7 @@ export function useCustomerLogin() {
     onSuccess: () => {
       toast.success("ເຂົ້າສູ່ລະບົບສຳເລັດ");
       qc.invalidateQueries({ queryKey: customerAuthKeys.me });
+      qc.invalidateQueries({ queryKey: ["cart"] });
     },
     onError: () => toast.error("ອີເມວ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ"),
   });
@@ -47,9 +48,8 @@ export function useCustomerLogout() {
     mutationFn: () => customerAuthApi.logout(),
     onSuccess: () => {
       toast.success("ອອກຈາກລະບົບແລ້ວ");
-      // clear cache ทันที + invalidate เพื่อ force refetch ถ้าจำเป็น
       qc.setQueryData(customerAuthKeys.me, null);
-      qc.invalidateQueries({ queryKey: customerAuthKeys.me });
+      qc.removeQueries({ queryKey: ["cart"] });
     },
   });
 }

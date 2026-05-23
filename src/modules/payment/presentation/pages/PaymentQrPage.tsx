@@ -91,9 +91,9 @@ export function PaymentQrPage() {
     if (!orderId) return;
     try {
       const s = await paymentApi.getStatus(orderId);
-      if (s.isPaid) onPaymentConfirmed();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "ບໍ່ສາມາດກວດສອບໄດ້");
+      if (s?.isPaid) onPaymentConfirmed();
+    } catch {
+      // silent — polling will retry
     }
   }
 
