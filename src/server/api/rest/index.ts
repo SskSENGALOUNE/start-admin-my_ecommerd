@@ -17,6 +17,7 @@ import { rolesRoutes } from "@/modules/roles/api";
 import { uploadRoutes } from "@/modules/upload/api";
 import { usersRoutes } from "@/modules/users/api";
 import { transactionsRoutes } from "@/modules/transactions/api";
+import { bannersRoutes } from "@/modules/banner/api";
 
 export function createRestRoutes() {
   return new Elysia()
@@ -37,5 +38,6 @@ export function createRestRoutes() {
     .use(customersRoutes)
     .use(customerAccountRoutes)
     .use(dashboardRoutes)
-    .use(transactionsRoutes);
+    .use(transactionsRoutes)
+    .use(bannersRoutes);
 }

@@ -41,12 +41,24 @@ export interface ShopCategory {
   name: string;
 }
 
+export interface ShopBanner {
+  id: string;
+  title: string;
+  imageUrl: string;
+  linkUrl: string | null;
+  order: number;
+}
+
 export interface ShopProductListResult {
   data: ShopProduct[];
   meta: { total: number; limit: number; offset: number };
 }
 
 export const shopApi = {
+  async listBanners(): Promise<{ data: ShopBanner[] }> {
+    return fetcher.get(`${BASE}/banners`);
+  },
+
   async listCategories(): Promise<{ data: ShopCategory[] }> {
     return fetcher.get(`${BASE}/categories`);
   },

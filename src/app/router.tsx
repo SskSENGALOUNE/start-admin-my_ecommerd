@@ -211,6 +211,12 @@ const TransactionsPage = lazy(() =>
   ),
 );
 
+const BannersPage = lazy(() =>
+  import("@/modules/banner/presentation/pages/BannersPage").then(
+    (module) => ({ default: module.BannersPage }),
+  ),
+);
+
 const rootRoute = createRootRoute({
   component: RootLayout,
   errorComponent: ErrorBoundary,
@@ -575,6 +581,18 @@ const transactionsRoute = createRoute({
   ),
 });
 
+const bannersRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/banners",
+  component: () => (
+    <RequirePermissions all={["banners:read"]}>
+      <LazyPage>
+        <BannersPage />
+      </LazyPage>
+    </RequirePermissions>
+  ),
+});
+
 // ─── Customer Account Routes ──────────────────────────────────────────────────
 const accountRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -641,6 +659,7 @@ export const routeTree = rootRoute.addChildren([
     ordersRoute,
     orderDetailRoute,
     transactionsRoute,
+    bannersRoute,
   ]),
   forbiddenRoute,
 ]);

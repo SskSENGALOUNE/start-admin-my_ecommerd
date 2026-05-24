@@ -18,7 +18,7 @@ export function ShopNavbar({ cartCount = 0 }: Props) {
         {/* Logo */}
         <button
           type="button"
-          onClick={() => nav({ to: "/shop" })}
+          onClick={() => nav({ to: "/" })}
           className="flex items-center gap-2 text-lg font-bold hover:opacity-80"
         >
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">

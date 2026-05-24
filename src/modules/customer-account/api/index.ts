@@ -133,6 +133,9 @@ export const customerAccountRoutes = new Elysia({ prefix: "/customer-account" })
     async ({ request, body, status, db }) => {
       const session = await getCustomerSession(request);
       if (!session) return status(401, { message: "ກະລຸນາເຂົ້າສູ່ລະບົບກ່ອນ" });
+      const existing = await listMyAddresses(session.id, db);
+      if (existing.length > 0)
+        return status(400, { message: "ມີທີ່ຢູ່ຈັດສົ່ງແລ້ວ — ກະລຸນາແກ້ໄຂທີ່ຢູ່ທີ່ມີຢູ່" });
       const created = await createMyAddress(session.id, body, db);
       if (!created) return status(500, { message: "ສ້າງທີ່ຢູ່ລົ້ມເຫຼວ" });
       return created;

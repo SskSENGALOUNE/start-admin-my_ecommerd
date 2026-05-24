@@ -17,6 +17,27 @@ const IdParam = z.object({ id: z.string().min(1) });
 export const shopRoutes = new Elysia({ prefix: "/shop" })
   .use(serverContext)
 
+  // GET /shop/banners — public active banners
+  .get("/banners", async ({ db }) => {
+    const rows = await db
+      .select({
+        id: schema.banners.id,
+        title: schema.banners.title,
+        imageUrl: schema.banners.imageUrl,
+        linkUrl: schema.banners.linkUrl,
+        order: schema.banners.order,
+      })
+      .from(schema.banners)
+      .where(
+        and(
+          isNull(schema.banners.deletedAt),
+          sql`${schema.banners.isActive} = true`,
+        ),
+      )
+      .orderBy(schema.banners.order);
+    return { data: rows };
+  })
+
   // GET /shop/categories — public category list
   .get("/categories", async ({ db }) => {
     const rows = await db
@@ -45,10 +66,11 @@ export const shopRoutes = new Elysia({ prefix: "/shop" })
 
       const where = and(...conditions);
 
-      const [{ count }] = await db
+      const countResult = await db
         .select({ count: sql<number>`cast(count(*) as int)` })
         .from(schema.products)
         .where(where);
+      const count = countResult[0]?.count ?? 0;
 
       const rows = await db
         .select({

@@ -14,6 +14,5 @@ export const uploadRoutes = new Elysia()
   .use(
     new Elysia({ prefix: "/files" })
       .use(serverContext)
-      .onBeforeHandle(requireAuth)
       .use(fileRoutes),
   );

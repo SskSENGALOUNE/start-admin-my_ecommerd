@@ -188,20 +188,52 @@ export const checkoutRoutes = new Elysia({ prefix: "/checkout" })
 
         const totalAmount = subtotal + SHIPPING_COST - discount;
 
-        // 4b. Create shipping address
-        const [address] = await tx
-          .insert(schema.addresses)
-          .values({
-            customerId: session.id,
-            recipientName: body.recipientName,
-            recipientPhone: body.recipientPhone,
-            province: body.province,
-            district: body.district,
-            village: body.village ?? null,
-            address: body.address,
-            isDefault: false,
-          })
-          .returning({ id: schema.addresses.id });
+        // 4b. Upsert shipping address — update existing if customer already has one
+        const [existing] = await tx
+          .select({ id: schema.addresses.id })
+          .from(schema.addresses)
+          .where(
+            and(
+              eq(schema.addresses.customerId, session.id),
+              isNull(schema.addresses.deletedAt),
+            ),
+          )
+          .limit(1);
+
+        let address: { id: string } | undefined;
+
+        if (existing) {
+          const [updated] = await tx
+            .update(schema.addresses)
+            .set({
+              recipientName: body.recipientName,
+              recipientPhone: body.recipientPhone,
+              province: body.province,
+              district: body.district,
+              village: body.village ?? null,
+              address: body.address,
+              isDefault: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.addresses.id, existing.id))
+            .returning({ id: schema.addresses.id });
+          address = updated;
+        } else {
+          const [created] = await tx
+            .insert(schema.addresses)
+            .values({
+              customerId: session.id,
+              recipientName: body.recipientName,
+              recipientPhone: body.recipientPhone,
+              province: body.province,
+              district: body.district,
+              village: body.village ?? null,
+              address: body.address,
+              isDefault: true,
+            })
+            .returning({ id: schema.addresses.id });
+          address = created;
+        }
 
         if (!address) throw new Error("ສ້າງທີ່ຢູ່ລົ້ມເຫຼວ");
 

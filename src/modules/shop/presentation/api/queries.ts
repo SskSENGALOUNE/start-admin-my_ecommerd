@@ -2,10 +2,19 @@ import { useQuery } from "@tanstack/react-query";
 import { shopApi } from "./client";
 
 export const shopKeys = {
+  banners: ["shop", "banners"] as const,
   categories: ["shop", "categories"] as const,
   products: (p?: object) => ["shop", "products", p] as const,
   product: (id: string) => ["shop", "product", id] as const,
 };
+
+export function useShopBanners() {
+  return useQuery({
+    queryKey: shopKeys.banners,
+    queryFn: () => shopApi.listBanners(),
+    staleTime: 1000 * 60 * 5,
+  });
+}
 
 export function useShopCategories() {
   return useQuery({

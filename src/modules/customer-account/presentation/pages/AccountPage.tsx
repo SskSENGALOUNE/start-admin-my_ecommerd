@@ -359,9 +359,11 @@ function AddressesTab() {
           <MapPinIcon className="h-4 w-4 text-primary" />
           ທີ່ຢູ່ຈັດສົ່ງ
         </h2>
-        <Button size="sm" onClick={() => setModal({ mode: "create" })}>
-          + ເພີ່ມທີ່ຢູ່
-        </Button>
+        {addresses.length === 0 && (
+          <Button size="sm" onClick={() => setModal({ mode: "create" })}>
+            + ເພີ່ມທີ່ຢູ່
+          </Button>
+        )}
       </div>
 
       {addressesQuery.isLoading ? (
